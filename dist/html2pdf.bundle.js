@@ -13901,10 +13901,10 @@ function unzipSync(data) {
             this.ctx.translate(-offsetX, -offsetY);
         };
         CanvasRenderer.prototype.resizeImage = function (image, width, height) {
+            // if (image.width === width && image.height === height) {
+            //     return image;
+            // }
             var _a;
-            if (image.width === width && image.height === height) {
-                return image;
-            }
             var ownerDocument = (_a = this.canvas.ownerDocument) !== null && _a !== void 0 ? _a : document;
             var canvas = ownerDocument.createElement('canvas');
             canvas.width = Math.max(1, width);
