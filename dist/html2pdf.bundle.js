@@ -5898,7 +5898,7 @@ function unzipSync(data) {
 /***/ (function(module) {
 
 /*!
- * html2canvas-pro 1.4.3 <undefined>
+ * html2canvas-pro 1.5.0 <undefined>
  * Copyright (c) 2024 yorickshan <https://github.com/yorickshan>
  * Released under MIT License
  */
@@ -7615,53 +7615,6 @@ function unzipSync(data) {
     };
     var deg = function (deg) { return (Math.PI * deg) / 180; };
 
-    var color$1 = {
-        name: 'color',
-        parse: function (context, value) {
-            if (value.type === 18 /* FUNCTION */) {
-                var colorFunction = SUPPORTED_COLOR_FUNCTIONS[value.name];
-                if (typeof colorFunction === 'undefined') {
-                    throw new Error("Attempting to parse an unsupported color function \"" + value.name + "\"");
-                }
-                return colorFunction(context, value.values);
-            }
-            if (value.type === 5 /* HASH_TOKEN */) {
-                if (value.value.length === 3) {
-                    var r = value.value.substring(0, 1);
-                    var g = value.value.substring(1, 2);
-                    var b = value.value.substring(2, 3);
-                    return pack(parseInt(r + r, 16), parseInt(g + g, 16), parseInt(b + b, 16), 1);
-                }
-                if (value.value.length === 4) {
-                    var r = value.value.substring(0, 1);
-                    var g = value.value.substring(1, 2);
-                    var b = value.value.substring(2, 3);
-                    var a = value.value.substring(3, 4);
-                    return pack(parseInt(r + r, 16), parseInt(g + g, 16), parseInt(b + b, 16), parseInt(a + a, 16) / 255);
-                }
-                if (value.value.length === 6) {
-                    var r = value.value.substring(0, 2);
-                    var g = value.value.substring(2, 4);
-                    var b = value.value.substring(4, 6);
-                    return pack(parseInt(r, 16), parseInt(g, 16), parseInt(b, 16), 1);
-                }
-                if (value.value.length === 8) {
-                    var r = value.value.substring(0, 2);
-                    var g = value.value.substring(2, 4);
-                    var b = value.value.substring(4, 6);
-                    var a = value.value.substring(6, 8);
-                    return pack(parseInt(r, 16), parseInt(g, 16), parseInt(b, 16), parseInt(a, 16) / 255);
-                }
-            }
-            if (value.type === 20 /* IDENT_TOKEN */) {
-                var namedColor = COLORS[value.value.toUpperCase()];
-                if (typeof namedColor !== 'undefined') {
-                    return namedColor;
-                }
-            }
-            return COLORS.TRANSPARENT;
-        }
-    };
     var isTransparent = function (color) { return (0xff & color) === 0; };
     var asString = function (color) {
         var alpha = 0xff & color;
@@ -7683,19 +7636,111 @@ function unzipSync(data) {
         }
         return 0;
     };
-    var rgb = function (_context, args) {
-        var tokens = args.filter(nonFunctionArgSeparator);
-        if (tokens.length === 3) {
-            var _a = tokens.map(getTokenColorValue), r = _a[0], g = _a[1], b = _a[2];
-            return pack(r, g, b, 1);
-        }
-        if (tokens.length === 4) {
-            var _b = tokens.map(getTokenColorValue), r = _b[0], g = _b[1], b = _b[2], a = _b[3];
-            return pack(r, g, b, a);
-        }
-        return 0;
+    var isRelativeTransform = function (tokens) {
+        return (tokens[0].type === 20 /* IDENT_TOKEN */ ? tokens[0].value : 'unknown') === 'from';
     };
-    function hue2rgb(t1, t2, hue) {
+    var clamp = function (value, min, max) {
+        return Math.min(Math.max(value, min), max);
+    };
+    var multiplyMatrices = function (A, B) {
+        return [
+            A[0] * B[0] + A[1] * B[1] + A[2] * B[2],
+            A[3] * B[0] + A[4] * B[1] + A[5] * B[2],
+            A[6] * B[0] + A[7] * B[1] + A[8] * B[2]
+        ];
+    };
+    var packSrgb = function (args) {
+        return pack(clamp(Math.round(args[0] * 255), 0, 255), clamp(Math.round(args[1] * 255), 0, 255), clamp(Math.round(args[2] * 255), 0, 255), clamp(args[3], 0, 1));
+    };
+    var packSrgbLinear = function (_a) {
+        var r = _a[0], g = _a[1], b = _a[2], a = _a[3];
+        var rgb = srgbLinear2rgb([r, g, b]);
+        return pack(clamp(Math.round(rgb[0] * 255), 0, 255), clamp(Math.round(rgb[1] * 255), 0, 255), clamp(Math.round(rgb[2] * 255), 0, 255), a);
+    };
+    var packXYZ = function (args) {
+        var srgb_linear = xyz2rgbLinear([args[0], args[1], args[2]]);
+        return packSrgbLinear([srgb_linear[0], srgb_linear[1], srgb_linear[2], args[3]]);
+    };
+    var packLab = function (_context, args) {
+        if (isRelativeTransform(args.filter(nonFunctionArgSeparator))) {
+            throw new Error('Relative color not supported for lab()');
+        }
+        var _a = extractLabComponents(args), l = _a[0], a = _a[1], b = _a[2], alpha = _a[3], rgb = srgbLinear2rgb(xyz2rgbLinear(lab2xyz([l, a, b])));
+        return pack(clamp(Math.round(rgb[0] * 255), 0, 255), clamp(Math.round(rgb[1] * 255), 0, 255), clamp(Math.round(rgb[2] * 255), 0, 255), alpha);
+    };
+    var packOkLab = function (_context, args) {
+        if (isRelativeTransform(args.filter(nonFunctionArgSeparator))) {
+            throw new Error('Relative color not supported for oklab()');
+        }
+        var _a = extractLabComponents(args), l = _a[0], a = _a[1], b = _a[2], alpha = _a[3], rgb = srgbLinear2rgb(xyz2rgbLinear(oklab2xyz([l, a, b])));
+        return pack(clamp(Math.round(rgb[0] * 255), 0, 255), clamp(Math.round(rgb[1] * 255), 0, 255), clamp(Math.round(rgb[2] * 255), 0, 255), alpha);
+    };
+    var packOkLch = function (_context, args) {
+        if (isRelativeTransform(args.filter(nonFunctionArgSeparator))) {
+            throw new Error('Relative color not supported for oklch()');
+        }
+        var _a = extractOkLchComponents(args), l = _a[0], c = _a[1], h = _a[2], alpha = _a[3], rgb = srgbLinear2rgb(xyz2rgbLinear(oklab2xyz(lch2lab([l, c, h]))));
+        return pack(clamp(Math.round(rgb[0] * 255), 0, 255), clamp(Math.round(rgb[1] * 255), 0, 255), clamp(Math.round(rgb[2] * 255), 0, 255), alpha);
+    };
+    var packLch = function (_context, args) {
+        if (isRelativeTransform(args.filter(nonFunctionArgSeparator))) {
+            throw new Error('Relative color not supported for lch()');
+        }
+        var _a = extractLchComponents(args), l = _a[0], c = _a[1], h = _a[2], a = _a[3], rgb = srgbLinear2rgb(xyz2rgbLinear(lab2xyz(lch2lab([l, c, h]))));
+        return pack(clamp(Math.round(rgb[0] * 255), 0, 255), clamp(Math.round(rgb[1] * 255), 0, 255), clamp(Math.round(rgb[2] * 255), 0, 255), a);
+    };
+    var extractHslComponents = function (context, args) {
+        var tokens = args.filter(nonFunctionArgSeparator), hue = tokens[0], saturation = tokens[1], lightness = tokens[2], alpha = tokens[3], h = (hue.type === 17 /* NUMBER_TOKEN */ ? deg(hue.number) : angle.parse(context, hue)) / (Math.PI * 2), s = isLengthPercentage(saturation) ? saturation.number / 100 : 0, l = isLengthPercentage(lightness) ? lightness.number / 100 : 0, a = typeof alpha !== 'undefined' && isLengthPercentage(alpha) ? getAbsoluteValue(alpha, 1) : 1;
+        return [h, s, l, a];
+    };
+    var packHSL = function (context, args) {
+        if (isRelativeTransform(args)) {
+            throw new Error('Relative color not supported for hsl()');
+        }
+        var _a = extractHslComponents(context, args), h = _a[0], s = _a[1], l = _a[2], a = _a[3], rgb = hsl2rgb([h, s, l]);
+        return pack(rgb[0] * 255, rgb[1] * 255, rgb[2] * 255, s === 0 ? 1 : a);
+    };
+    var extractLchComponents = function (args) {
+        var tokens = args.filter(nonFunctionArgSeparator), l = isLengthPercentage(tokens[0]) ? tokens[0].number : 0, c = isLengthPercentage(tokens[1]) ? tokens[1].number : 0, h = isNumberToken(tokens[2]) || isDimensionToken(tokens[2]) ? tokens[2].number : 0, a = typeof tokens[4] !== 'undefined' && isLengthPercentage(tokens[4]) ? getAbsoluteValue(tokens[4], 1) : 1;
+        return [l, c, h, a];
+    };
+    var extractLabComponents = function (args) {
+        var tokens = args.filter(nonFunctionArgSeparator), 
+        // eslint-disable-next-line prettier/prettier
+        l = tokens[0].type === 16 /* PERCENTAGE_TOKEN */ ? tokens[0].number / 100 : (isNumberToken(tokens[0]) ? tokens[0].number : 0), 
+        // eslint-disable-next-line prettier/prettier
+        a = tokens[1].type === 16 /* PERCENTAGE_TOKEN */ ? tokens[1].number / 100 : (isNumberToken(tokens[1]) ? tokens[1].number : 0), b = isNumberToken(tokens[2]) || isDimensionToken(tokens[2]) ? tokens[2].number : 0, alpha = typeof tokens[4] !== 'undefined' && isLengthPercentage(tokens[4]) ? getAbsoluteValue(tokens[4], 1) : 1;
+        return [l, a, b, alpha];
+    };
+    var extractOkLchComponents = function (args) {
+        var tokens = args.filter(nonFunctionArgSeparator), 
+        // eslint-disable-next-line prettier/prettier
+        l = tokens[0].type === 16 /* PERCENTAGE_TOKEN */ ? tokens[0].number / 100 : isNumberToken(tokens[0]) ? tokens[0].number : 0, 
+        // eslint-disable-next-line prettier/prettier
+        c = tokens[1].type === 16 /* PERCENTAGE_TOKEN */ ? tokens[1].number / 100 : isNumberToken(tokens[1]) ? tokens[1].number : 0, h = isNumberToken(tokens[2]) || isDimensionToken(tokens[2]) ? tokens[2].number : 0, a = typeof tokens[4] !== 'undefined' && isLengthPercentage(tokens[4]) ? getAbsoluteValue(tokens[4], 1) : 1;
+        return [l, c, h, a];
+    };
+    /**
+     * Convert D65 to D50
+     *
+     * @param xyz
+     */
+    var d65toD50 = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [1.0479297925449969, 0.022946870601609652, -0.05019226628920524, 0.02962780877005599, 0.9904344267538799, -0.017073799063418826, -0.009243040646204504, 0.015055191490298152, 0.7518742814281371], xyz);
+    };
+    /**
+     * Convert D50 to D65
+     *
+     * @param xyz
+     */
+    var d50toD65 = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [0.955473421488075, -0.02309845494876471, 0.06325924320057072, -0.0283697093338637, 1.0099953980813041, 0.021041441191917323, 0.012314014864481998, -0.020507649298898964, 1.330365926242124], xyz);
+    };
+    var hue2rgb = function (t1, t2, hue) {
         if (hue < 0) {
             hue += 1;
         }
@@ -7714,48 +7759,749 @@ function unzipSync(data) {
         else {
             return t1;
         }
-    }
-    var hsl = function (context, args) {
-        var tokens = args.filter(nonFunctionArgSeparator);
-        var hue = tokens[0], saturation = tokens[1], lightness = tokens[2], alpha = tokens[3];
-        var h = (hue.type === 17 /* NUMBER_TOKEN */ ? deg(hue.number) : angle.parse(context, hue)) / (Math.PI * 2);
-        var s = isLengthPercentage(saturation) ? saturation.number / 100 : 0;
-        var l = isLengthPercentage(lightness) ? lightness.number / 100 : 0;
-        var a = typeof alpha !== 'undefined' && isLengthPercentage(alpha) ? getAbsoluteValue(alpha, 1) : 1;
-        if (s === 0) {
-            return pack(l * 255, l * 255, l * 255, 1);
-        }
-        var t2 = l <= 0.5 ? l * (s + 1) : l + s - l * s;
-        var t1 = l * 2 - t2;
-        var r = hue2rgb(t1, t2, h + 1 / 3);
-        var g = hue2rgb(t1, t2, h);
-        var b = hue2rgb(t1, t2, h - 1 / 3);
-        return pack(r * 255, g * 255, b * 255, a);
     };
-    var clamp = function (value, min, max) { return Math.min(Math.max(value, min), max); };
-    var oklch = function (context, args) {
+    var hsl2rgb = function (_a) {
+        var h = _a[0], s = _a[1], l = _a[2];
+        if (s === 0) {
+            return [l * 255, l * 255, l * 255];
+        }
+        var t2 = l <= 0.5 ? l * (s + 1) : l + s - l * s, t1 = l * 2 - t2, r = hue2rgb(t1, t2, h + 1 / 3), g = hue2rgb(t1, t2, h), b = hue2rgb(t1, t2, h - 1 / 3);
+        return [r, g, b];
+    };
+    /**
+     * Convert lch to OKLab
+     *
+     * @param l
+     * @param c
+     * @param h
+     */
+    var lch2lab = function (_a) {
+        var l = _a[0], c = _a[1], h = _a[2];
+        if (c < 0) {
+            c = 0;
+        }
+        if (isNaN(h)) {
+            h = 0;
+        }
+        return [l, c * Math.cos((h * Math.PI) / 180), c * Math.sin((h * Math.PI) / 180)];
+    };
+    /**
+     * Convert OKLab to XYZ relative to D65
+     *
+     * @param lab
+     */
+    var oklab2xyz = function (lab) {
+        var LMSg = multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [1, 0.3963377773761749, 0.2158037573099136, 1, -0.1055613458156586, -0.0638541728258133, 1, -0.0894841775298119, -1.2914855480194092], lab), LMS = LMSg.map(function (val) { return Math.pow(val, 3); });
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [1.2268798758459243, -0.5578149944602171, 0.2813910456659647, -0.0405757452148008, 1.112286803280317, -0.0717110580655164, -0.0763729366746601, -0.4214933324022432, 1.5869240198367816], LMS);
+    };
+    /**
+     * Convert Lab to D50-adapted XYZ
+     *
+     * @param lab
+     */
+    var lab2xyz = function (lab) {
+        var fy = (lab[0] + 16) / 116, fx = lab[1] / 500 + fy, fz = fy - lab[2] / 200, k = 24389 / 27, e = 24 / 116, xyz = [
+            ((fx > e ? Math.pow(fx, 3) : (116 * fx - 16) / k) * 0.3457) / 0.3585,
+            lab[0] > 8 ? Math.pow(fy, 3) : lab[0] / k,
+            ((fz > e ? Math.pow(fz, 3) : (116 * fz - 16) / k) * (1.0 - 0.3457 - 0.3585)) / 0.3585
+        ];
+        return d50toD65([xyz[0], xyz[1], xyz[2]]);
+    };
+    /**
+     * Convert RGB to XYZ
+     *
+     * @param _context
+     * @param args
+     */
+    var rgbToXyz = function (_context, args) {
         var tokens = args.filter(nonFunctionArgSeparator);
-        var lightness = tokens[0], chroma = tokens[1], hue = tokens[2], alpha = tokens[3];
-        var l = isLengthPercentage(lightness) ? lightness.number / 100 : 0;
-        var c = isLengthPercentage(chroma) ? chroma.number / 100 : 0;
-        var h = hue.type === 17 /* NUMBER_TOKEN */ ? deg(hue.number) : angle.parse(context, hue);
-        var a = typeof alpha !== 'undefined' && isLengthPercentage(alpha) ? getAbsoluteValue(alpha, 1) : 1;
-        var hrad = h / (Math.PI * 180);
-        var lr = l * 255;
-        var cr = c * 128;
-        var x = cr * Math.cos(hrad);
-        var y = cr * Math.sin(hrad);
-        var r = lr + x;
-        var g = lr - x * 0.57735 - y * 1.1547;
-        var b = lr + y * 1.73205;
-        return pack(clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255), a);
+        if (tokens.length === 3) {
+            var _a = tokens.map(getTokenColorValue), r = _a[0], g = _a[1], b = _a[2], rgb_linear = rgb2rgbLinear([r / 255, g / 255, b / 255]), _b = rgbLinear2xyz([rgb_linear[0], rgb_linear[1], rgb_linear[2]]), x = _b[0], y = _b[1], z = _b[2];
+            return [x, y, z, 1];
+        }
+        if (tokens.length === 4) {
+            var _c = tokens.map(getTokenColorValue), r = _c[0], g = _c[1], b = _c[2], a = _c[3], rgb_linear = rgb2rgbLinear([r / 255, g / 255, b / 255]), _d = rgbLinear2xyz([rgb_linear[0], rgb_linear[1], rgb_linear[2]]), x = _d[0], y = _d[1], z = _d[2];
+            return [x, y, z, a];
+        }
+        return [0, 0, 0, 1];
+    };
+    /**
+     * HSL to XYZ
+     *
+     * @param context
+     * @param args
+     */
+    var hslToXyz = function (context, args) {
+        var _a = extractHslComponents(context, args), h = _a[0], s = _a[1], l = _a[2], a = _a[3], rgb_linear = rgb2rgbLinear(hsl2rgb([h, s, l])), _b = rgbLinear2xyz([rgb_linear[0], rgb_linear[1], rgb_linear[2]]), x = _b[0], y = _b[1], z = _b[2];
+        return [x, y, z, a];
+    };
+    /**
+     * LAB to XYZ
+     *
+     * @param _context
+     * @param args
+     */
+    var labToXyz = function (_context, args) {
+        var _a = extractLabComponents(args), l = _a[0], a = _a[1], b = _a[2], alpha = _a[3], _b = lab2xyz([l, a, b]), x = _b[0], y = _b[1], z = _b[2];
+        return [x, y, z, alpha];
+    };
+    /**
+     * LCH to XYZ
+     *
+     * @param _context
+     * @param args
+     */
+    var lchToXyz = function (_context, args) {
+        var _a = extractLchComponents(args), l = _a[0], c = _a[1], h = _a[2], alpha = _a[3], _b = lab2xyz(lch2lab([l, c, h])), x = _b[0], y = _b[1], z = _b[2];
+        return [x, y, z, alpha];
+    };
+    /**
+     * OKLch to XYZ
+     *
+     * @param _context
+     * @param args
+     */
+    var oklchToXyz = function (_context, args) {
+        var _a = extractOkLchComponents(args), l = _a[0], c = _a[1], h = _a[2], alpha = _a[3], _b = oklab2xyz(lch2lab([l, c, h])), x = _b[0], y = _b[1], z = _b[2];
+        return [x, y, z, alpha];
+    };
+    /**
+     * OKLab to XYZ
+     *
+     * @param _context
+     * @param args
+     */
+    var oklabToXyz = function (_context, args) {
+        var _a = extractLabComponents(args), l = _a[0], c = _a[1], h = _a[2], alpha = _a[3], _b = oklab2xyz([l, c, h]), x = _b[0], y = _b[1], z = _b[2];
+        return [x, y, z, alpha];
+    };
+    /**
+     * XYZ-50 to XYZ
+     *
+     * @param args
+     */
+    var xyz50ToXYZ = function (args) {
+        return d50toD65([args[0], args[1], args[2]]);
+    };
+    /**
+     * Does nothing, required for SUPPORTED_COLOR_SPACES_FROM_XYZ in the _color() function
+     *
+     * @param args
+     */
+    var xyzFromXYZ = function (args) {
+        return args;
+    };
+    /**
+     * XYZ-65 to XYZ-50
+     *
+     * @param args
+     */
+    var xyz50FromXYZ = function (args) {
+        var _a = d65toD50([args[0], args[2], args[3]]), x = _a[0], y = _a[1], z = _a[2];
+        return [x, y, z, args[3]];
+    };
+    /**
+     * Convert XYZ to SRGB and Pack
+     *
+     * @param args
+     */
+    var convertXyz = function (args) {
+        return packXYZ([args[0], args[1], args[2], args[3]]);
+    };
+    /**
+     * Convert XYZ-50 to SRGB and Pack
+     *
+     * @param args
+     */
+    var convertXyz50 = function (args) {
+        var xyz = xyz50ToXYZ([args[0], args[1], args[2]]);
+        return packXYZ([xyz[0], xyz[1], xyz[2], args[3]]);
+    };
+
+    /**
+     * SRGB related functions
+     */
+    /**
+     * Convert XYZ to linear-light sRGB
+     *
+     * @param xyz
+     */
+    var xyz2rgbLinear = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [3.2409699419045226, -1.537383177570094, -0.4986107602930034, -0.9692436362808796, 1.8759675015077202, 0.04155505740717559, 0.05563007969699366, -0.20397695888897652, 1.0569715142428786], xyz);
+    };
+    /**
+     * Convert XYZ to linear-light sRGB
+     *
+     * @param xyz
+     */
+    var rgbLinear2xyz = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [0.41239079926595934, 0.357584339383878, 0.1804807884018343, 0.21263900587151027, 0.715168678767756, 0.07219231536073371, 0.01933081871559182, 0.11919477979462598, 0.9505321522496607], xyz);
+    };
+    /**
+     * Convert sRGB to RGB
+     *
+     * @param rgb
+     */
+    var srgbLinear2rgb = function (rgb) {
+        return rgb.map(function (c) {
+            var sign = c < 0 ? -1 : 1, abs = Math.abs(c);
+            // eslint-disable-next-line prettier/prettier
+            return abs > 0.0031308 ? sign * (1.055 * (Math.pow(abs, (1 / 2.4))) - 0.055) : (12.92 * c);
+        });
+    };
+    /**
+     * Convert RGB to sRGB
+     *
+     * @param rgb
+     */
+    var rgb2rgbLinear = function (rgb) {
+        return rgb.map(function (c) {
+            var sign = c < 0 ? -1 : 1, abs = Math.abs(c);
+            // eslint-disable-next-line prettier/prettier
+            return abs <= 0.04045 ? c / 12.92 : sign * (Math.pow(((abs + 0.055) / 1.055), 2.4));
+        });
+    };
+    /**
+     * XYZ to SRGB
+     *
+     * @param args
+     */
+    var srgbFromXYZ = function (args) {
+        var _a = srgbLinear2rgb(xyz2rgbLinear([args[0], args[1], args[2]])), r = _a[0], g = _a[1], b = _a[2];
+        return [r, g, b, args[3]];
+    };
+    /**
+     * XYZ to SRGB-Linear
+     * @param args
+     */
+    var srgbLinearFromXYZ = function (args) {
+        var _a = xyz2rgbLinear([args[0], args[1], args[2]]), r = _a[0], g = _a[1], b = _a[2];
+        return [
+            clamp(Math.round(r * 255), 0, 255),
+            clamp(Math.round(g * 255), 0, 255),
+            clamp(Math.round(b * 255), 0, 255),
+            args[3]
+        ];
+    };
+
+    /**
+     * Display-P3 related functions
+     */
+    /**
+     * Convert P3 Linear to xyz
+     *
+     * @param p3l
+     */
+    var p3LinearToXyz = function (p3l) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [0.4865709486482162, 0.26566769316909306, 0.1982172852343625, 0.2289745640697488, 0.6917385218365064, 0.079286914093745, 0.0, 0.04511338185890264, 1.043944368900976
+        ], p3l);
+    };
+    /**
+     * Convert XYZ to P3 Linear
+     *
+     * @param xyz
+     */
+    var xyzToP3Linear = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [2.493496911941425, -0.9313836179191239, -0.40271078445071684, -0.8294889695615747, 1.7626640603183463, 0.023624685841943577, 0.03584583024378447, -0.07617238926804182, 0.9568845240076872], xyz);
+    };
+    /**
+     * Convert P3 to P3 linear
+     *
+     * @param p3
+     */
+    var p32p3Linear = function (p3) {
+        return p3.map(function (c) {
+            var sign = c < 0 ? -1 : 1, abs = c * sign;
+            if (abs <= 0.04045) {
+                return c / 12.92;
+            }
+            // eslint-disable-next-line prettier/prettier
+            return sign * (Math.pow(((c + 0.055) / 1.055), 2.4)) || 0;
+        });
+    };
+    /**
+     * Convert P3 Linear to P3
+     *
+     * @param p3l
+     */
+    var p3Linear2p3 = function (p3l) {
+        return srgbLinear2rgb(p3l);
+    };
+    /**
+     * Convert P3 to XYZ
+     *
+     * @param args
+     */
+    var p3ToXYZ = function (args) {
+        var p3_linear = p32p3Linear([args[0], args[1], args[2]]);
+        return p3LinearToXyz([p3_linear[0], p3_linear[1], p3_linear[2]]);
+    };
+    /**
+     * Convert XYZ to P3
+     *
+     * @param args
+     */
+    var p3FromXYZ = function (args) {
+        var _a = p3Linear2p3(xyzToP3Linear([args[0], args[1], args[2]])), r = _a[0], g = _a[1], b = _a[2];
+        return [r, g, b, args[3]];
+    };
+    /**
+     * Convert P3 to SRGB and Pack
+     *
+     * @param args
+     */
+    var convertP3 = function (args) {
+        var xyz = p3ToXYZ([args[0], args[1], args[2]]);
+        return packXYZ([xyz[0], xyz[1], xyz[2], args[3]]);
+    };
+
+    /**
+     * A98-RGB related functions
+     */
+    /**
+     * Convert XYZ to a98 linear
+     *
+     * @param xyz
+     */
+    var xyz2a98Linear = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [2.0415879038107465, -0.5650069742788596, -0.34473135077832956, -0.9692436362808795, 1.8759675015077202, 0.04155505740717557, 0.013444280632031142, -0.11836239223101838, 1.0151749943912054], xyz);
+    };
+    /**
+     * Convert XYZ to a98 linear
+     *
+     * @param a98
+     */
+    var a98Linear2xyz = function (a98) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [0.5766690429101305, 0.1855582379065463, 0.1882286462349947, 0.29734497525053605, 0.6273635662554661, 0.0752914584939978, 0.02703136138641234, 0.07068885253582723, 0.9913375368376388], a98);
+    };
+    /**
+     * Convert A98 RGB to rgb linear
+     *
+     * @param rgb
+     */
+    var a982a98Linear = function (rgb) {
+        var mapped = rgb.map(function (c) {
+            var sign = c < 0 ? -1 : 1, abs = Math.abs(c);
+            return sign * Math.pow(abs, (563 / 256));
+        });
+        return [mapped[0], mapped[1], mapped[2]];
+    };
+    /**
+     * Convert A98 RGB Linear to A98
+     *
+     * @param rgb
+     */
+    var a98Linear2a98 = function (rgb) {
+        var mapped = rgb.map(function (c) {
+            var sign = c < 0 ? -1 : 1, abs = Math.abs(c);
+            return sign * Math.pow(abs, (256 / 563));
+        });
+        return [mapped[0], mapped[1], mapped[2]];
+    };
+    /**
+     * Convert XYZ to A98
+     *
+     * @param args
+     */
+    var a98FromXYZ = function (args) {
+        var _a = a98Linear2a98(xyz2a98Linear([args[0], args[1], args[2]])), r = _a[0], g = _a[1], b = _a[2];
+        return [r, g, b, args[3]];
+    };
+    /**
+     * Convert A98 to XYZ and Pack
+     *
+     * @param args
+     */
+    var convertA98rgb = function (args) {
+        var srgb_linear = xyz2rgbLinear(a98Linear2xyz(a982a98Linear([args[0], args[1], args[2]])));
+        return packSrgbLinear([srgb_linear[0], srgb_linear[1], srgb_linear[2], args[3]]);
+    };
+
+    /**
+     * Pro Photo related functions
+     */
+    /**
+     * Convert linear-light display-p3 to XYZ D65
+     *
+     * @param p3
+     */
+    var proPhotoLinearToXyz = function (p3) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [0.79776664490064230, 0.13518129740053308, 0.03134773412839220, 0.28807482881940130, 0.71183523424187300, 0.00008993693872564, 0.0, 0.0, 0.82510460251046020], p3);
+    };
+    /**
+     * Convert XYZ D65 to linear-light display-p3
+     *
+     * @param xyz
+     */
+    var xyzToProPhotoLinear = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [1.34578688164715830, -0.25557208737979464, -0.05110186497554526, -0.54463070512490190, 1.50824774284514680, 0.02052744743642139, 0.0, 0.0, 1.21196754563894520], xyz);
+    };
+    /**
+     * Convert Pro-Photo to Pro-Photo Linear
+     *
+     * @param p3
+     */
+    var proPhotoToProPhotoLinear = function (p3) {
+        return p3.map(function (c) {
+            return c < 16 / 512 ? c / 16 : Math.pow(c, 1.8);
+        });
+    };
+    /**
+     * Convert Pro-Photo Linear to Pro-Photo
+     *
+     * @param p3
+     */
+    var proPhotoLinearToProPhoto = function (p3) {
+        return p3.map(function (c) {
+            return c > 1 / 512 ? Math.pow(c, (1 / 1.8)) : c * 16;
+        });
+    };
+    /**
+     * Convert Pro-Photo to XYZ
+     *
+     * @param args
+     */
+    var proPhotoToXYZ = function (args) {
+        var prophoto_linear = proPhotoToProPhotoLinear([args[0], args[1], args[2]]);
+        return d50toD65(proPhotoLinearToXyz([prophoto_linear[0], prophoto_linear[1], prophoto_linear[2]]));
+    };
+    /**
+     * Convert XYZ to Pro-Photo
+     *
+     * @param args
+     */
+    var proPhotoFromXYZ = function (args) {
+        var _a = proPhotoLinearToProPhoto(xyzToProPhotoLinear(d65toD50([args[0], args[1], args[2]]))), r = _a[0], g = _a[1], b = _a[2];
+        return [r, g, b, args[3]];
+    };
+    /**
+     * Convert Pro-Photo to XYZ and Pack
+     *
+     * @param args
+     */
+    var convertProPhoto = function (args) {
+        var xyz = proPhotoToXYZ([args[0], args[1], args[2]]);
+        return packXYZ([xyz[0], xyz[1], xyz[2], args[3]]);
+    };
+
+    /**
+     * REC2020 related functions
+     */
+    var _a = 1.09929682680944;
+    var _b = 0.018053968510807;
+    /**
+     * Convert rec2020 to rec2020 linear
+     *
+     * @param rgb
+     */
+    var rec20202rec2020Linear = function (rgb) {
+        return rgb.map(function (c) {
+            return c < _b * 4.5 ? c / 4.5 : Math.pow((c + _a - 1) / _a, 1 / 0.45);
+        });
+    };
+    /**
+     * Convert rec2020 linear to rec2020
+     *
+     * @param rgb
+     */
+    var rec2020Linear2rec2020 = function (rgb) {
+        return rgb.map(function (c) {
+            return c >= _b ? _a * Math.pow(c, 0.45) - (_a - 1) : 4.5 * c;
+        });
+    };
+    /**
+     * Convert rec2020 linear to XYZ D65
+     *
+     * @param rec
+     */
+    var rec2020LinearToXyz = function (rec) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [0.6369580483012914, 0.14461690358620832, 0.1688809751641721, 0.2627002120112671, 0.6779980715188708, 0.05930171646986196, 0.0, 0.028072693049087428, 1.060985057710791
+        ], rec);
+    };
+    /**
+     * Convert XYZ D65 to rec2020 linear
+     *
+     * @param xyz
+     */
+    var xyzToRec2020Linear = function (xyz) {
+        return multiplyMatrices(
+        // eslint-disable-next-line prettier/prettier
+        [1.716651187971268, -0.355670783776392, -0.253366281373660, -0.666684351832489, 1.616481236634939, 0.0157685458139111, 0.017639857445311, -0.042770613257809, 0.942103121235474], xyz);
+    };
+    /**
+     * Convert Rec2020 to XYZ
+     *
+     * @param args
+     */
+    var rec2020ToXYZ = function (args) {
+        var rec2020_linear = rec20202rec2020Linear([args[0], args[1], args[2]]);
+        return rec2020LinearToXyz([rec2020_linear[0], rec2020_linear[1], rec2020_linear[2]]);
+    };
+    /**
+     * Convert XYZ to Rec2020
+     *
+     * @param args
+     */
+    var rec2020FromXYZ = function (args) {
+        var _c = rec2020Linear2rec2020(xyzToRec2020Linear([args[0], args[1], args[2]])), r = _c[0], g = _c[1], b = _c[2];
+        return [r, g, b, args[3]];
+    };
+    /**
+     * Convert Rec2020 to SRGB and Pack
+     *
+     * @param args
+     */
+    var convertRec2020 = function (args) {
+        var xyz = rec2020ToXYZ([args[0], args[1], args[2]]);
+        return packXYZ([xyz[0], xyz[1], xyz[2], args[3]]);
+    };
+
+    var color$1 = {
+        name: 'color',
+        parse: function (context, value) {
+            if (value.type === 18 /* FUNCTION */) {
+                var colorFunction = SUPPORTED_COLOR_FUNCTIONS[value.name];
+                if (typeof colorFunction === 'undefined') {
+                    throw new Error("Attempting to parse an unsupported color function \"" + value.name + "\"");
+                }
+                return colorFunction(context, value.values);
+            }
+            if (value.type === 5 /* HASH_TOKEN */) {
+                var _a = hash2rgb(value), r = _a[0], g = _a[1], b = _a[2], a = _a[3];
+                return pack(r, g, b, a);
+            }
+            if (value.type === 20 /* IDENT_TOKEN */) {
+                var namedColor = COLORS[value.value.toUpperCase()];
+                if (typeof namedColor !== 'undefined') {
+                    return namedColor;
+                }
+            }
+            return COLORS.TRANSPARENT;
+        }
+    };
+    var hash2rgb = function (token) {
+        if (token.value.length === 3) {
+            var r = token.value.substring(0, 1);
+            var g = token.value.substring(1, 2);
+            var b = token.value.substring(2, 3);
+            return [parseInt(r + r, 16), parseInt(g + g, 16), parseInt(b + b, 16), 1];
+        }
+        if (token.value.length === 4) {
+            var r = token.value.substring(0, 1);
+            var g = token.value.substring(1, 2);
+            var b = token.value.substring(2, 3);
+            var a = token.value.substring(3, 4);
+            return [parseInt(r + r, 16), parseInt(g + g, 16), parseInt(b + b, 16), parseInt(a + a, 16) / 255];
+        }
+        if (token.value.length === 6) {
+            var r = token.value.substring(0, 2);
+            var g = token.value.substring(2, 4);
+            var b = token.value.substring(4, 6);
+            return [parseInt(r, 16), parseInt(g, 16), parseInt(b, 16), 1];
+        }
+        if (token.value.length === 8) {
+            var r = token.value.substring(0, 2);
+            var g = token.value.substring(2, 4);
+            var b = token.value.substring(4, 6);
+            var a = token.value.substring(6, 8);
+            return [parseInt(r, 16), parseInt(g, 16), parseInt(b, 16), parseInt(a, 16) / 255];
+        }
+        return [0, 0, 0, 1];
+    };
+    var rgb = function (_context, args) {
+        var tokens = args.filter(nonFunctionArgSeparator);
+        if (isRelativeTransform(tokens)) {
+            throw new Error('Relative color not supported for rgb()');
+        }
+        if (tokens.length === 3) {
+            var _a = tokens.map(getTokenColorValue), r = _a[0], g = _a[1], b = _a[2];
+            return pack(r, g, b, 1);
+        }
+        if (tokens.length === 4) {
+            var _b = tokens.map(getTokenColorValue), r = _b[0], g = _b[1], b = _b[2], a = _b[3];
+            return pack(r, g, b, a);
+        }
+        return 0;
+    };
+    /**
+     * Handle the CSS color() function
+     *
+     * @param context
+     * @param args
+     */
+    var _color = function (context, args) {
+        var tokens = args.filter(nonFunctionArgSeparator), token_1_value = tokens[0].type === 20 /* IDENT_TOKEN */ ? tokens[0].value : 'unknown', is_absolute = !isRelativeTransform(tokens);
+        if (is_absolute) {
+            var color_space = token_1_value, colorSpaceFunction = SUPPORTED_COLOR_SPACES_ABSOLUTE[color_space];
+            if (typeof colorSpaceFunction === 'undefined') {
+                throw new Error("Attempting to parse an unsupported color space \"" + color_space + "\" for color() function");
+            }
+            var c1 = isNumberToken(tokens[1]) ? tokens[1].number : 0, c2 = isNumberToken(tokens[2]) ? tokens[2].number : 0, c3 = isNumberToken(tokens[3]) ? tokens[3].number : 0, a = tokens.length > 4 &&
+                tokens[4].type === 6 /* DELIM_TOKEN */ &&
+                tokens[4].value === '/' &&
+                isNumberToken(tokens[5])
+                ? tokens[5].number
+                : 1;
+            return colorSpaceFunction([c1, c2, c3, a]);
+        }
+        else {
+            var extractComponent = function (color, token) {
+                if (isNumberToken(token)) {
+                    return token.number;
+                }
+                var posFromVal = function (value) {
+                    return value === 'r' || value === 'x' ? 0 : value === 'g' || value === 'y' ? 1 : 2;
+                };
+                if (isIdentToken(token)) {
+                    var position = posFromVal(token.value);
+                    return color[position];
+                }
+                var parseCalc = function (args) {
+                    var parts = args.filter(nonFunctionArgSeparator);
+                    var expression = '(';
+                    for (var _i = 0, parts_1 = parts; _i < parts_1.length; _i++) {
+                        var part = parts_1[_i];
+                        expression +=
+                            part.type === 18 /* FUNCTION */ && part.name === 'calc'
+                                ? parseCalc(part.values)
+                                : isNumberToken(part)
+                                    ? part.number
+                                    : part.type === 6 /* DELIM_TOKEN */ || isIdentToken(part)
+                                        ? part.value
+                                        : '';
+                    }
+                    expression += ')';
+                    return expression;
+                };
+                if (token.type === 18 /* FUNCTION */) {
+                    var args_1 = token.values.filter(nonFunctionArgSeparator);
+                    if (token.name === 'calc') {
+                        var expression = parseCalc(args_1)
+                            .replace(/r|x/, color[0].toString())
+                            .replace(/g|y/, color[1].toString())
+                            .replace(/b|z/, color[2].toString());
+                        return eval(expression);
+                    }
+                }
+                return null;
+            };
+            var from_colorspace = tokens[1].type === 18 /* FUNCTION */
+                ? tokens[1].name
+                : isIdentToken(tokens[1]) || tokens[1].type === 5 /* HASH_TOKEN */
+                    ? 'rgb'
+                    : 'unknown', to_colorspace = isIdentToken(tokens[2]) ? tokens[2].value : 'unknown';
+            var from = tokens[1].type === 18 /* FUNCTION */ ? tokens[1].values : isIdentToken(tokens[1]) ? [tokens[1]] : [];
+            if (isIdentToken(tokens[1])) {
+                var named_color = COLORS[tokens[1].value.toUpperCase()];
+                if (typeof named_color === 'undefined') {
+                    throw new Error("Attempting to use unknown color in relative color 'from'");
+                }
+                else {
+                    var _c = parseColor(context, tokens[1].value), alpha = 0xff & _c, blue = 0xff & (_c >> 8), green = 0xff & (_c >> 16), red = 0xff & (_c >> 24);
+                    from = [
+                        { type: 17 /* NUMBER_TOKEN */, number: red, flags: 1 },
+                        { type: 17 /* NUMBER_TOKEN */, number: green, flags: 1 },
+                        { type: 17 /* NUMBER_TOKEN */, number: blue, flags: 1 },
+                        { type: 17 /* NUMBER_TOKEN */, number: alpha > 1 ? alpha / 255 : alpha, flags: 1 }
+                    ];
+                }
+            }
+            else if (tokens[1].type === 5 /* HASH_TOKEN */) {
+                var _a = hash2rgb(tokens[1]), red = _a[0], green = _a[1], blue = _a[2], alpha = _a[3];
+                from = [
+                    { type: 17 /* NUMBER_TOKEN */, number: red, flags: 1 },
+                    { type: 17 /* NUMBER_TOKEN */, number: green, flags: 1 },
+                    { type: 17 /* NUMBER_TOKEN */, number: blue, flags: 1 },
+                    { type: 17 /* NUMBER_TOKEN */, number: alpha > 1 ? alpha / 255 : alpha, flags: 1 }
+                ];
+            }
+            if (from.length === 0) {
+                throw new Error("Attempting to use unknown color in relative color 'from'");
+            }
+            if (to_colorspace === 'unknown') {
+                throw new Error("Attempting to use unknown colorspace in relative color 'to'");
+            }
+            var fromColorToXyz = SUPPORTED_COLOR_SPACES_TO_XYZ[from_colorspace], toColorFromXyz = SUPPORTED_COLOR_SPACES_FROM_XYZ[to_colorspace], toColorPack = SUPPORTED_COLOR_SPACES_ABSOLUTE[to_colorspace];
+            if (typeof fromColorToXyz === 'undefined') {
+                throw new Error("Attempting to parse an unsupported color space \"" + from_colorspace + "\" for color() function");
+            }
+            if (typeof toColorFromXyz === 'undefined') {
+                throw new Error("Attempting to parse an unsupported color space \"" + to_colorspace + "\" for color() function");
+            }
+            var from_color = fromColorToXyz(context, from), from_final_colorspace = toColorFromXyz(from_color), c1 = extractComponent(from_final_colorspace, tokens[3]), c2 = extractComponent(from_final_colorspace, tokens[4]), c3 = extractComponent(from_final_colorspace, tokens[5]), a = tokens.length > 6 &&
+                tokens[6].type === 6 /* DELIM_TOKEN */ &&
+                tokens[6].value === '/' &&
+                isNumberToken(tokens[7])
+                ? tokens[7].number
+                : 1;
+            if (c1 === null || c2 === null || c3 === null) {
+                throw new Error("Invalid relative color in color() function");
+            }
+            return toColorPack([c1, c2, c3, a]);
+        }
+    };
+    var SUPPORTED_COLOR_SPACES_ABSOLUTE = {
+        srgb: packSrgb,
+        'srgb-linear': packSrgbLinear,
+        'display-p3': convertP3,
+        'a98-rgb': convertA98rgb,
+        'prophoto-rgb': convertProPhoto,
+        xyz: convertXyz,
+        'xyz-d50': convertXyz50,
+        'xyz-d65': convertXyz,
+        rec2020: convertRec2020
+    };
+    var SUPPORTED_COLOR_SPACES_TO_XYZ = {
+        rgb: rgbToXyz,
+        hsl: hslToXyz,
+        lab: labToXyz,
+        lch: lchToXyz,
+        oklab: oklabToXyz,
+        oklch: oklchToXyz
+    };
+    var SUPPORTED_COLOR_SPACES_FROM_XYZ = {
+        srgb: srgbFromXYZ,
+        'srgb-linear': srgbLinearFromXYZ,
+        'display-p3': p3FromXYZ,
+        'a98-rgb': a98FromXYZ,
+        'prophoto-rgb': proPhotoFromXYZ,
+        xyz: xyzFromXYZ,
+        'xyz-d50': xyz50FromXYZ,
+        'xyz-d65': xyzFromXYZ,
+        rec2020: rec2020FromXYZ
     };
     var SUPPORTED_COLOR_FUNCTIONS = {
-        hsl: hsl,
-        hsla: hsl,
+        hsl: packHSL,
+        hsla: packHSL,
         rgb: rgb,
         rgba: rgb,
-        oklch: oklch
+        lch: packLch,
+        oklch: packOkLch,
+        oklab: packOkLab,
+        lab: packLab,
+        color: _color
     };
     var parseColor = function (context, value) {
         return color$1.parse(context, Parser.create(value).parseComponentValue());
