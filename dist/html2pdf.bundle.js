@@ -5898,7 +5898,7 @@ function unzipSync(data) {
 /***/ (function(module) {
 
 /*!
- * html2canvas-pro 1.5.0 <undefined>
+ * html2canvas-pro 1.5.1 <undefined>
  * Copyright (c) 2024 yorickshan <https://github.com/yorickshan>
  * Released under MIT License
  */
@@ -13901,6 +13901,7 @@ function unzipSync(data) {
             this.ctx.translate(-offsetX, -offsetY);
         };
         CanvasRenderer.prototype.resizeImage = function (image, width, height) {
+            // https://github.com/niklasvh/html2canvas/pull/2911
             // if (image.width === width && image.height === height) {
             //     return image;
             // }
